@@ -1,0 +1,247 @@
+---
+title: "STA286 Lecture 24"
+author: "Neil Montgomery"
+date: "Last edited: `r format(Sys.time(), '%Y-%m-%d %H:%M')`"
+output: 
+  beamer_presentation:
+    keep_tex: TRUE
+    incremental: TRUE
+    df_print: tibble
+    fig_caption: FALSE
+classoption: aspectratio=169
+header-includes:
+- \renewcommand{\le}{\leqslant}
+- \renewcommand{\ge}{\geqslant}
+- \renewcommand\P[1]{P{\left(#1\right)}}
+- \newcommand\F[1]{F_{\tiny{#1}}}
+- \newcommand\f[1]{f_{\tiny{#1}}}
+- \newcommand\p[1]{p_{\tiny{#1}}}
+- \newcommand\M[1]{M_{\tiny{#1}}}
+- \newcommand\V[1]{\text{Var}\!\left(#1\right)}
+- \newcommand\E[1]{E\!\left(#1\right)}
+- \newcommand\N[1]{N_{\tiny{#1}}}
+- \newcommand\ol{\overline}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE,
+                      dev = 'pdf')
+options(tibble.width=70)
+library(tidyverse)
+paint <- read.delim("Ex09.14.txt")
+options(digits=3)
+```
+
+## watching even more paint dry
+
+The paint company wants to estimate the mean paint drying time to within a margin of error of 10 minutes, with 95\% confidence. 
+
+\pause \textbf{Sample size requirement:} The formula is:
+$$n= \left(\frac{z_{\alpha/2}\sigma}{e}\right)^2$$
+
+\pause We could use our best guess from the available information $s=`r sd(paint$latex.paint)`$ (in hours) in place of $\sigma$ in the calculation:
+
+\begin{equation*}
+\left(\frac{1.96\cdot`r sd(paint$latex.paint)`}{10/60}\right)^2 = `r (1.96*sd(paint$latex.paint)/(10/60))^2` 
+\end{equation*}
+
+\pause So just to bother you, I'll use $n=130$. 
+
+```{r}
+n <- trunc((1.96*sd(paint$latex.paint)/(10/60))^2)
+```
+
+
+## gather a sample of size $n=`r n`$
+
+Here is a relevant summary of the dataset:
+
+```{r}
+library(knitr)
+# I'll be using a Weibull(1.8, 2.1) distribution
+beta <- 1.8
+eta <- 2.1
+
+# Add this constant to each randomly generated Weibull(1.8, 2.1) to make the
+# mean close to 4
+adj <- 2.3
+
+paint2 <- data_frame(drying_times = (adj + rweibull(n, beta, eta)))
+paint2_summary <- paint2 %>% 
+  summarize(x_bar = mean(drying_times), s = sd(drying_times), n=n()) 
+kable(paint2_summary, digits=3)
+```
+
+
+\pause From the $t_{`r n-1`}$ distribution we get $t_{`r n-1`, 0.025} = `r -qt(0.025, n-1)`$. So the 95\% confidence interval is:
+$$\overline{x} \pm t_{`r n-1`, 0.025}\frac{s}{\sqrt{n}} = 
+`r paint2_summary$x_bar` \pm `r -qt(0.025, n-1)`\frac{`r paint2_summary$s`}{\sqrt{`r n`}}$$
+
+\pause or
+$$[`r paint2_summary$x_bar - -qt(0.025, n-1)*paint2_summary$s/sqrt(n)`,
+`r paint2_summary$x_bar + -qt(0.025, n-1)*paint2_summary$s/sqrt(n)`]$$
+
+## verifying the model assumption(s)
+
+In this case there is only one assumption (that can be verified)---that the underlying distribution is normal. Here is a normal quantile plot of the data:
+
+```{r, fig.width=3, fig.height=2.5, fig.align='center'}
+paint2 %>% 
+  ggplot(aes(sample=drying_times)) + geom_qq()
+```
+
+## model assumption conclusion | robustness of "$t$ procedure"
+
+The normal distribution assumption has been violated. It seems the underlying distribution is skewed right. 
+
+However, the sample size $n=`r n`$ is large, so by the speed of convergence of the CLT and its buddy Mr. Slutsky, we're still OK.
+
+\pause Dirty secret: I simulated the data to get the example sample of size `r n`.
+
+```{r}
+# True mean, with 2.3 added to make it near 4 (close to 9.14 sample average)
+mu <- eta*gamma(1+1/beta) + adj
+
+# Number of replications
+k <- 10000
+
+# n, beta, and eta carried over from code chunk above.
+
+samples <- replicate(k, adj + rweibull(n, beta, eta))
+
+means <- apply(samples, 2, mean)
+sds <- apply(samples, 2, sd)
+t_crit <- -qt(0.025, n-1)
+
+# Calculate the proportion that captured the true mean mu.
+prop_mu <- mean((means - t_crit*sds/sqrt(n) < mu) & 
+    (means + t_crit*sds/sqrt(n) > mu))
+options(digits=5)
+```
+
+
+\pause As an example of what is called the "robustness" of this confidence interval against violations of the normality assumption, I did a quick simulation (code embedded in notes).
+
+\pause The proportion of the $`r k`$ simulated confidence intervals that captured the true mean is (for this simulation---changes every time I render the lecture notes):
+$$`r prop_mu`$$
+
+## prediction, as opposed to estimation
+
+To get the interval estimate of $\mu$ we used the fact that $\ol{X} - \mu$ is normal with variance $\V{\ol{X} - \mu} = \sigma^2/n$ to obtain $(\ol{X} - \mu)/(\sigma/\sqrt{n}) \sim N(0,1)$, etc.
+
+\pause Suppose instead we want to predict the next actual value of the random process under consideration.
+
+\pause For example, we open a new can of paint. How long will *this* paint take to dry?
+
+\pause We can use the sample $X_1,\ldots,X_n$ to make the prediction. Simply use $\ol{X}$. But the difference between predition and actual is now $\ol{X} - X$.
+
+\pause The variance of this expression is:
+$$\V{\ol{X}-X} \onslide<6->{= \V{\ol{X}} + \V{X}} \onslide<7->{= \frac{\sigma^2}{n} + \sigma^2} \onslide<8->{=\sigma^2\left(1+\frac{1}{n}\right)}$$
+
+\pause\pause\pause\pause If the population is normal, so will be ${\ol{X} - X}$, and its mean will be $\E{\ol{X} - X} = \mu-\mu=0$
+
+## prediction "interval"
+
+Put it all together to get:
+$$\frac{\ol{X}-X}{\sigma\sqrt{1+\frac{1}{n}}} \sim N(0,1)$$
+
+\pause Deal with unknown $\sigma$ right now---replace it with $S$ from the sample, to get:
+$$\frac{\ol{X}-X}{S\sqrt{1+\frac{1}{n}}} \sim \onslide<3->{t}\onslide<4->{_{n-1}}$$
+
+\pause\pause\pause A $100\cdot(1-\alpha)\%$ \textit{prediction interval} can be obtained by solving for $X$ in:
+
+$$\P{-t_{n-1,\alpha/2} < \frac{\ol{X}-X}{S\sqrt{1+\frac{1}{n}}} < t_{n-1, \alpha/2}}$$
+
+## prediction interval example
+
+The formula is:
+$$\ol{X} \pm t_{n-1, \alpha/2} S \sqrt{1+\frac{1}{n}}$$ 
+
+\pause Just that little `1' under the square root---but it makes all the difference. It guarantees that the prediction can never be better than the variance in the population itself, no matter what the sample size.
+
+\pause Using the paint example, with $t_{`r n-1`, 0.025} = `r -qt(0.025, n-1)`$ and
+
+```{r}
+options(digits=3)
+kable(paint2_summary, digits=4)
+```
+
+in the formula gives:
+\begin{equation*}
+`r paint2_summary$x_bar` \pm `r -qt(0.025, n-1)` \cdot `r paint2_summary$s` \sqrt{1+\frac{1}{`r n`}} \qquad \text{ or } \qquad 
+[`r paint2_summary$x_bar - -qt(0.025, n-1)*paint2_summary$s*sqrt(1+1/n)`,
+`r paint2_summary$x_bar + -qt(0.025, n-1)*paint2_summary$s*sqrt(1+1/n)`]
+\end{equation*}
+
+## prediction interval model assumptions
+
+Normal population is the only assumption. 
+
+Suppose the population is not normal. What might happen to the following as $n$ gets large?
+$$\frac{\ol{X}-X}{\sigma\sqrt{1+\frac{1}{n}}}$$
+
+\pause There is no way of knowing. $X$ just sits there in the numerator, with properties that never change no matter what the sample size.
+
+\pause So the population really has to be normal, or the P.I. formula doesn't work. 
+
+\pause The paint drying P.I. we calculated is therefore not that useful.
+
+## the two-sample problem (normal populations)
+
+We've solved the case of one numerical variable in a dataset with a normal population. 
+
+Often you'll have a numerical variable in one column, and a "grouping" variable in another column that categorizes the observations into two groups.
+
+\begin{columns}
+\begin{column}{0.5\textwidth}
+\begin{table}[ht]
+\centering
+\begin{tabular}{rl}
+  \hline
+Variable & Group \\ 
+  \hline
+3.85 & 2 \\ 
+  6.06 & 2 \\ 
+  3.28 & 1 \\ 
+  4.85 & 2 \\ 
+  5.34 & 1 \\ 
+  6.03 & 2 \\ 
+  \vdots & \vdots\\
+   \hline
+\end{tabular}
+\end{table}
+\end{column}
+\pause
+\begin{column}{0.5\textwidth}
+\begin{table}[ht]
+\centering
+\begin{tabular}{rl}
+  \hline
+Variable & Group \\ 
+  \hline
+$X_{21}$ & 2 \\ 
+  $X_{22}$ & 2 \\ 
+  $X_{11}$ & 1 \\ 
+  $X_{22}$ & 2 \\ 
+  $X_{12}$ & 1 \\ 
+  $X_{24}$ & 2 \\ 
+  \vdots & \vdots\\
+   \hline
+\end{tabular}
+\end{table}
+\end{column}
+\end{columns}
+
+## the two-sample problem (normal populations) with equal variances
+
+We have two populations $N(\mu_1,\sigma)$ and $N(\mu_2,\sigma)$, and the goal is to estimate $\theta = \mu_1 - \mu_2$.
+
+Gather independent samples: $X_{11},\ldots,X_{1n_1}$ i.i.d. $N(\mu_1,\sigma)$ and $X_{21},\ldots,X_{2n_2}$ i.i.d. $N(\mu_2,\sigma)$.
+
+\pause The "obvious" estimator is $\ol{X}_1 - \ol{X}_2$, with the following properties:
+\begin{align*}
+\E{\ol{X}_1 - \ol{X}_2} \onslide<3->{&= \mu_1 - \mu_2}\\
+\onslide<4->{\V{\ol{X}_1 - \ol{X}_2}} \onslide<5->{&= \V{\ol{X}_1} + \V{\ol{X}_2} = \frac{\sigma^2}{n_1} + \frac{\sigma^2}{n_2}} \onslide<6->{= \sigma^2\left(\frac{1}{n_1} + \frac{1}{n_2}\right)}
+\end{align*}
+
+\pause\pause\pause\pause We need to figure out what to do about $\sigma^2$.
